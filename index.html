@@ -1,6 +1,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>影片分段剪輯</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#141821">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=JetBrains+Mono:wght@500;700&display=swap">
@@ -46,8 +50,7 @@ svg.i { width: 18px; height: 18px; flex: none; }
 /* ---------- 工具列 ---------- */
 .topbar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: color-mix(in srgb, var(--bg) 85%, transparent); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
 .topbar-in { max-width: 1320px; margin: 0 auto; padding-inline: 20px; padding-block: 10px; display: flex; align-items: center; gap: 14px; }
-.logo { width: 32px; height: 32px; border-radius: 9px; background: var(--ink); display: grid; place-items: center; flex: none; }
-.logo i { display: block; width: 14px; height: 14px; border-left: 3px solid var(--in); border-right: 3px solid var(--out); }
+.logo { width: 32px; height: 32px; flex: none; display: block; border-radius: 7px; box-shadow: 0 0 0 1px var(--line); }
 .name { font-weight: 900; font-size: 17px; letter-spacing: .03em; }
 .name small { display: block; font-weight: 400; font-size: 12px; color: var(--muted); letter-spacing: 0; }
 .spacer { flex: 1; }
@@ -240,7 +243,7 @@ footer kbd { font: 700 10.5px var(--font-mono); padding: 1px 5px; border-radius:
 
 <header class="topbar">
   <div class="topbar-in">
-    <div class="logo" aria-hidden="true"><i></i></div>
+    <img class="logo" src="icon.svg" alt="" width="32" height="32">
     <div class="name">影片分段剪輯<small>依時間、容量或入點／出點切成多段</small></div>
     <span class="spacer"></span>
     <span class="pill" id="engine"><span class="dot"></span><span id="engineText">剪輯引擎載入中…</span></span>
