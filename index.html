@@ -1,0 +1,1127 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>影片分段剪輯</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+/* 版面：剪輯台。上方工具列；左欄是設定（影片→切法→輸出），右邊是播放器、膠卷時間軸、段落表。窄螢幕上下排列 */
+:root {
+  --bg: #e8ebf0; --panel: #ffffff; --panel-2: #f3f5f8; --panel-3: #e9edf3; --ink: #141821; --muted: #5b6374;
+  --faint: #8a92a3; --line: #d7dce4; --accent: #2f5bea; --accent-2: #4a73ff; --accent-ink: #ffffff;
+  --accent-soft: #e1e8fe; --in: #0d9a63; --in-soft: #d9f4e8; --out: #dc3d43; --out-soft: #fde3e4;
+  --seg-a: #2f5bea; --seg-b: #e08a12; --good: #0f7a4b; --warn: #9a5704; --screen: #07080b;
+  --strip: #1a1d24; --shadow: 0 1px 2px rgb(20 24 33 / 5%), 0 12px 32px -12px rgb(20 24 33 / 14%);
+  --font-body: "Noto Sans TC", "Microsoft JhengHei", "PingFang TC", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", Consolas, "SF Mono", monospace;
+  --r: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0a0c10; --panel: #12151b; --panel-2: #191d25; --panel-3: #20252f; --ink: #e8eaef; --muted: #9098a8;
+    --faint: #677082; --line: #242a34; --accent: #5480ff; --accent-2: #7396ff; --accent-ink: #ffffff;
+    --accent-soft: #1a2546; --in: #31d394; --in-soft: #0f2a20; --out: #ff5f64; --out-soft: #331618;
+    --seg-a: #5480ff; --seg-b: #f2a43a; --good: #4ade80; --warn: #fbbf24; --screen: #000000;
+    --strip: #0d0f13; --shadow: 0 1px 0 rgb(255 255 255 / 3%) inset, 0 16px 40px -16px rgb(0 0 0 / 70%);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0a0c10; --panel: #12151b; --panel-2: #191d25; --panel-3: #20252f; --ink: #e8eaef; --muted: #9098a8;
+  --faint: #677082; --line: #242a34; --accent: #5480ff; --accent-2: #7396ff; --accent-ink: #ffffff;
+  --accent-soft: #1a2546; --in: #31d394; --in-soft: #0f2a20; --out: #ff5f64; --out-soft: #331618;
+  --seg-a: #5480ff; --seg-b: #f2a43a; --good: #4ade80; --warn: #fbbf24; --screen: #000000;
+  --strip: #0d0f13; --shadow: 0 1px 0 rgb(255 255 255 / 3%) inset, 0 16px 40px -16px rgb(0 0 0 / 70%);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { background: var(--bg); color: var(--ink); font: 14.5px/1.55 var(--font-body); }
+button, input, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+svg.i { width: 18px; height: 18px; flex: none; }
+
+/* ---------- 工具列 ---------- */
+.topbar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: color-mix(in srgb, var(--bg) 85%, transparent); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
+.topbar-in { max-width: 1320px; margin: 0 auto; padding-inline: 20px; padding-block: 10px; display: flex; align-items: center; gap: 14px; }
+.logo { width: 32px; height: 32px; border-radius: 9px; background: var(--ink); display: grid; place-items: center; flex: none; }
+.logo i { display: block; width: 14px; height: 14px; border-left: 3px solid var(--in); border-right: 3px solid var(--out); }
+.name { font-weight: 900; font-size: 17px; letter-spacing: .03em; }
+.name small { display: block; font-weight: 400; font-size: 12px; color: var(--muted); letter-spacing: 0; }
+.spacer { flex: 1; }
+.pill { font-size: 12.5px; padding: 6px 11px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); color: var(--muted); display: inline-flex; gap: 7px; align-items: center; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--warn); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 20%, transparent); }
+.pill.ready .dot { background: var(--good); box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 20%, transparent); }
+.pill.error .dot { background: var(--out); box-shadow: 0 0 0 3px color-mix(in srgb, var(--out) 20%, transparent); }
+.icon-btn { width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); display: grid; place-items: center; cursor: pointer; }
+.icon-btn:hover { border-color: var(--accent); }
+
+/* ---------- 主版面 ---------- */
+.wrap { max-width: 1320px; margin: 0 auto; padding-inline: 20px; padding-block: 18px 28px; display: grid; grid-template-columns: minmax(300px, 372px) minmax(0, 1fr); gap: 18px; align-items: start; }
+@media (max-width: 980px) { .wrap { grid-template-columns: minmax(0, 1fr); } }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow); min-width: 0; }
+
+/* ---------- 左欄 ---------- */
+.side { display: grid; gap: 0; overflow: hidden; }
+.sec { padding: 18px 18px 20px; display: grid; gap: 12px; }
+.sec + .sec { border-top: 1px solid var(--line); }
+.sec-h { display: flex; align-items: center; gap: 10px; }
+.sec-h .n { width: 24px; height: 24px; border-radius: 7px; background: var(--accent-soft); color: var(--accent); font: 700 12px/24px var(--font-mono); text-align: center; }
+.sec-h h2 { margin: 0; font-size: 15px; font-weight: 700; }
+.sec-h .aside { margin-left: auto; font-size: 12px; color: var(--faint); }
+.hint { color: var(--muted); font-size: 12.5px; }
+
+.file { position: relative; display: grid; gap: 10px; padding: 14px; border: 1.5px dashed var(--line); border-radius: 12px; background: var(--panel-2); cursor: pointer; transition: border-color .15s, background .15s; }
+.file:hover { border-color: var(--accent); }
+.file input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.file-empty { display: grid; justify-items: center; gap: 6px; padding: 10px 4px; text-align: center; }
+.file-empty .big { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); }
+.file-empty b { font-size: 14.5px; }
+.file.loaded { border-style: solid; cursor: default; }
+.file-row { display: flex; gap: 12px; align-items: center; min-width: 0; }
+.thumb { width: 76px; aspect-ratio: 16/9; border-radius: 7px; background: var(--strip); flex: none; overflow: hidden; }
+.thumb canvas { width: 100%; height: 100%; display: block; object-fit: cover; }
+.file-name { font-weight: 700; overflow-wrap: anywhere; line-height: 1.35; min-width: 0; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { font: 500 11.5px var(--font-mono); padding: 3px 8px; border-radius: 6px; background: var(--panel-3); color: var(--muted); }
+.link { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font-size: 12.5px; }
+
+.field { display: grid; gap: 6px; }
+.field > label, .label { font-size: 12.5px; color: var(--muted); font-weight: 500; }
+.input { width: 100%; background: var(--panel-2); border: 1px solid var(--line); border-radius: 9px; padding: 8px 11px; min-width: 0; transition: border-color .15s, box-shadow .15s; }
+.input:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
+.input-suffix { display: flex; align-items: center; background: var(--panel-2); border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+.input-suffix:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.input-suffix input { flex: 1; border: 0; background: transparent; padding: 8px 11px; min-width: 0; outline: none; }
+.input-suffix span { padding-inline: 10px; color: var(--faint); font: 500 12px var(--font-mono); white-space: nowrap; }
+textarea.input { resize: vertical; min-height: 78px; font-family: var(--font-mono); font-size: 13px; line-height: 1.6; }
+.dest { font-size: 12.5px; color: var(--muted); display: flex; gap: 8px; align-items: flex-start; }
+.dest svg { color: var(--faint); margin-top: 2px; }
+.dest code { font-family: var(--font-mono); font-size: 12px; color: var(--ink); background: var(--panel-3); padding: 1px 6px; border-radius: 5px; overflow-wrap: anywhere; }
+
+/* 切法分頁 */
+.tabs { display: grid; grid-template-columns: repeat(3, 1fr); padding: 4px; gap: 4px; background: var(--panel-3); border-radius: 11px; }
+.tabs label { position: relative; text-align: center; padding: 7px 4px; border-radius: 8px; font-size: 13.5px; font-weight: 500; color: var(--muted); cursor: pointer; transition: background .15s, color .15s; }
+.tabs input { position: absolute; opacity: 0; pointer-events: none; }
+.tabs label:has(input:checked) { background: var(--panel); color: var(--ink); font-weight: 700; box-shadow: 0 1px 3px rgb(0 0 0 / 12%); }
+.tabs label:has(input:focus-visible) { outline: 2px solid var(--accent); }
+.mode-panel { display: grid; gap: 8px; }
+.presets { display: flex; gap: 6px; flex-wrap: wrap; }
+.presets button { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 3px 11px; font: 500 12px var(--font-mono); color: var(--muted); cursor: pointer; }
+.presets button:hover { border-color: var(--accent); color: var(--accent); }
+
+.switch { display: flex; gap: 12px; align-items: flex-start; cursor: pointer; padding: 12px; border-radius: 11px; background: var(--panel-2); border: 1px solid var(--line); }
+.switch input { position: absolute; opacity: 0; pointer-events: none; }
+.switch .track { width: 36px; height: 20px; border-radius: 99px; background: var(--line); position: relative; flex: none; margin-top: 1px; transition: background .15s; }
+.switch .track::after { content: ""; position: absolute; left: 2px; top: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgb(0 0 0 / 30%); transition: transform .15s; }
+.switch:has(input:checked) .track { background: var(--accent); }
+.switch:has(input:checked) .track::after { transform: translateX(16px); }
+.switch:has(input:focus-visible) { outline: 2px solid var(--accent); }
+.switch b { font-weight: 700; font-size: 13.5px; }
+.switch.disabled { opacity: .5; cursor: not-allowed; }
+
+.summary { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.summary .big { font: 700 26px/1 var(--font-mono); color: var(--ink); }
+.summary .big small { font: 500 13px var(--font-body); color: var(--muted); margin-left: 4px; }
+.summary.idle { color: var(--muted); font-size: 13.5px; }
+.seg-ctl { display: grid; grid-template-columns: 1fr 1fr; padding: 3px; gap: 3px; background: var(--panel-3); border-radius: 9px; }
+.seg-ctl label { text-align: center; padding: 5px; border-radius: 7px; font-size: 12.5px; cursor: pointer; color: var(--muted); }
+.seg-ctl input { position: absolute; opacity: 0; pointer-events: none; }
+.seg-ctl label:has(input:checked) { background: var(--panel); color: var(--ink); font-weight: 700; box-shadow: 0 1px 3px rgb(0 0 0 / 12%); }
+
+.go { position: relative; overflow: hidden; border: 0; border-radius: 12px; padding: 14px 18px; background: var(--accent); color: var(--accent-ink); font-weight: 700; font-size: 16px; cursor: pointer; display: flex; justify-content: center; align-items: center; gap: 8px; isolation: isolate; transition: filter .15s, transform .05s; }
+.go::before { content: ""; position: absolute; inset: 0; width: var(--p, 0%); background: var(--accent-2); z-index: -1; transition: width .25s; }
+.go:hover:not(:disabled) { filter: brightness(1.07); }
+.go:active:not(:disabled) { transform: translateY(1px); }
+.go:disabled { background: var(--panel-3); color: var(--faint); cursor: not-allowed; }
+.go.running { background: color-mix(in srgb, var(--accent) 55%, var(--panel-3)); color: #fff; cursor: progress; }
+.row { display: flex; gap: 8px; }
+.row > .go { flex: 1; }
+.btn { border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 8px 14px; cursor: pointer; font-size: 13.5px; display: inline-flex; gap: 7px; align-items: center; justify-content: center; white-space: nowrap; }
+.btn:hover:not(:disabled) { border-color: var(--accent); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.status { font-size: 13px; color: var(--muted); min-height: 1.4em; font-variant-numeric: tabular-nums; }
+.status.err { color: var(--out); }
+.status.ok { color: var(--good); font-weight: 700; }
+.diag { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; background: var(--panel-2); display: grid; gap: 6px; font-size: 13px; }
+.diag ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.diag li { overflow-wrap: anywhere; }
+.diag li.pass { color: var(--good); }
+.diag li.fail { color: var(--out); font-weight: 700; }
+.diag li span { font-weight: 400; color: var(--muted); }
+
+/* ---------- 剪輯台 ---------- */
+.stage { display: grid; gap: 0; overflow: hidden; }
+.player { position: relative; background: var(--screen); aspect-ratio: 16 / 9; max-width: 100%; }
+.player video { width: 100%; height: 100%; object-fit: contain; display: block; }
+.player .empty { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; text-align: center; gap: 10px; color: #8a92a3; padding: 20px; cursor: pointer; }
+.player .empty b { color: #e8eaef; font-size: 17px; }
+.player .empty .ring { width: 64px; height: 64px; border-radius: 50%; border: 1.5px dashed #3a4150; display: grid; place-items: center; color: #8a92a3; }
+.player .seg-badge { position: absolute; left: 12px; top: 12px; font: 700 12px var(--font-mono); padding: 4px 9px; border-radius: 7px; background: rgb(0 0 0 / 55%); color: #fff; backdrop-filter: blur(6px); }
+
+.edit { padding: 14px 16px 16px; display: grid; gap: 12px; border-top: 1px solid var(--line); }
+
+.ruler { position: relative; height: 18px; font: 500 10.5px var(--font-mono); color: var(--faint); user-select: none; }
+.ruler span { position: absolute; bottom: 0; transform: translateX(-50%); white-space: nowrap; }
+.ruler span::after { content: ""; position: absolute; left: 50%; bottom: -5px; height: 4px; border-left: 1px solid var(--line); }
+.ruler span:first-child { transform: none; }
+.ruler span:first-child::after { left: 0; }
+.timeline { position: relative; height: 64px; border-radius: 10px; background: var(--strip); cursor: pointer; touch-action: none; user-select: none; overflow: hidden; margin-top: 4px; }
+.timeline .strip { position: absolute; inset: 0; }
+.timeline .strip canvas { width: 100%; height: 100%; display: block; opacity: .55; }
+.timeline .overlay { position: absolute; inset: 0; }
+.seg { position: absolute; top: 0; bottom: 0; border: 2px solid var(--c); background: color-mix(in srgb, var(--c) 22%, transparent); border-radius: 8px; }
+.seg b { position: absolute; left: 5px; top: 5px; font: 700 10.5px/1 var(--font-mono); background: var(--c); color: #fff; padding: 3px 5px; border-radius: 4px; }
+.seg.a { --c: var(--seg-a); } .seg.b { --c: var(--seg-b); }
+.seg.on { background: color-mix(in srgb, var(--c) 38%, transparent); }
+.range { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, var(--in) 30%, transparent); border-left: 3px solid var(--in); }
+.range::before { content: "入"; position: absolute; left: 3px; bottom: 4px; font: 700 10px var(--font-body); color: #fff; background: var(--in); padding: 1px 4px; border-radius: 3px; }
+.head { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #fff; box-shadow: 0 0 0 1px rgb(0 0 0 / 40%); pointer-events: none; }
+.head::before { content: ""; position: absolute; top: 0; left: -5px; border: 6px solid transparent; border-top-color: #fff; }
+
+.transport { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.play { width: 46px; height: 46px; border-radius: 50%; border: 0; background: var(--accent); color: #fff; display: grid; place-items: center; cursor: pointer; flex: none; transition: filter .15s; }
+.play:hover:not(:disabled) { filter: brightness(1.1); }
+.play:disabled { background: var(--panel-3); color: var(--faint); cursor: not-allowed; }
+.mark { border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 0 12px; height: 38px; display: inline-flex; gap: 8px; align-items: center; cursor: pointer; font-size: 13.5px; font-weight: 500; }
+.mark kbd { font: 700 10.5px var(--font-mono); padding: 1px 5px; border-radius: 4px; background: var(--panel-3); color: var(--muted); }
+.mark .dot { width: 9px; height: 9px; border-radius: 2px; }
+.mark.in .dot { background: var(--in); } .mark.out .dot { background: var(--out); }
+.mark.in:hover:not(:disabled) { border-color: var(--in); background: var(--in-soft); }
+.mark.out:hover:not(:disabled) { border-color: var(--out); background: var(--out-soft); }
+.mark.armed { border-color: var(--in); background: var(--in-soft); }
+.mark:disabled { opacity: .45; cursor: not-allowed; }
+.clock { margin-left: auto; text-align: right; line-height: 1.2; }
+.clock .tc { font: 700 22px var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: .02em; }
+.clock .tc small { font-size: 13px; color: var(--faint); font-weight: 500; }
+.clock .where { font-size: 12px; color: var(--muted); }
+.range-info { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 10px; background: var(--in-soft); color: var(--in); font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.range-info .hint { color: inherit; font-weight: 400; opacity: .8; margin-left: auto; }
+
+.list-h { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.list-h h3 { margin: 0; font-size: 14px; }
+.list-h .total { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.list-h .total b { color: var(--ink); }
+.note { font-size: 12.5px; color: var(--warn); }
+.table-wrap { overflow: auto; border: 1px solid var(--line); border-radius: 12px; max-height: 360px; }
+table { width: 100%; border-collapse: collapse; font-size: 13.5px; min-width: 560px; }
+th { position: sticky; top: 0; z-index: 1; background: var(--panel-2); text-align: left; font-size: 11.5px; letter-spacing: .04em; color: var(--faint); font-weight: 700; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+td { padding: 7px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+tr:last-child td { border-bottom: 0; }
+tbody tr[data-i] { cursor: pointer; transition: background .1s; }
+tbody tr[data-i]:hover { background: var(--panel-2); }
+tbody tr.on { background: var(--accent-soft) !important; }
+.idx { display: inline-grid; place-items: center; min-width: 26px; height: 22px; border-radius: 6px; font: 700 11.5px var(--font-mono); color: #fff; }
+td.t { font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+td.t b { color: var(--ink); font-weight: 500; }
+.sz { display: grid; gap: 4px; min-width: 84px; }
+.sz span { font: 500 12.5px var(--font-mono); }
+.sz i { display: block; height: 4px; border-radius: 99px; background: var(--panel-3); overflow: hidden; }
+.sz i::after { content: ""; display: block; height: 100%; width: var(--w); background: var(--faint); border-radius: inherit; }
+td input { width: 100%; min-width: 140px; background: transparent; border: 1px solid transparent; border-radius: 7px; padding: 4px 7px; }
+td input:hover { border-color: var(--line); background: var(--panel); }
+td input:focus { border-color: var(--accent); outline: none; background: var(--panel); }
+.empty-row td { color: var(--muted); text-align: center; padding: 26px; cursor: default; }
+
+footer { max-width: 1320px; margin: 0 auto; padding-inline: 20px; padding-block: 0 24px; color: var(--faint); font-size: 12.5px; display: flex; gap: 6px 18px; flex-wrap: wrap; }
+footer kbd { font: 700 10.5px var(--font-mono); padding: 1px 5px; border-radius: 4px; border: 1px solid var(--line); }
+
+.dropzone { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; background: color-mix(in srgb, var(--bg) 70%, transparent); backdrop-filter: blur(4px); pointer-events: none; }
+.dropzone div { padding: 28px 40px; border-radius: 18px; border: 2px dashed var(--accent); background: var(--panel); font-weight: 700; font-size: 17px; color: var(--accent); }
+
+@media (max-width: 560px) {
+  .name small { display: none; }
+  .clock { margin-left: 0; width: 100%; text-align: left; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<header class="topbar">
+  <div class="topbar-in">
+    <div class="logo" aria-hidden="true"><i></i></div>
+    <div class="name">影片分段剪輯<small>依時間、容量或入點／出點切成多段</small></div>
+    <span class="spacer"></span>
+    <span class="pill" id="engine"><span class="dot"></span><span id="engineText">剪輯引擎載入中…</span></span>
+    <button class="icon-btn" id="themeBtn" type="button" aria-label="切換深色／淺色">
+      <svg class="i" id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></svg>
+    </button>
+  </div>
+</header>
+
+<main class="wrap">
+  <aside class="card side" aria-label="剪輯設定">
+    <section class="sec">
+      <div class="sec-h"><span class="n">1</span><h2>影片</h2></div>
+      <label class="file" id="fileBox">
+        <input type="file" id="file" accept="video/*,.mkv,.avi,.ts,.flv,.wmv">
+        <div class="file-empty" id="fileEmpty">
+          <span class="big"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg></span>
+          <b>選擇影片，或拖曳到這個頁面</b>
+          <span class="hint">mp4、mov、webm、mkv 都可以</span>
+        </div>
+        <div class="file-row" id="fileLoaded" hidden>
+          <div class="thumb" id="fileThumb"></div>
+          <div style="min-width:0;display:grid;gap:6px">
+            <div class="file-name" id="fileName"></div>
+            <div class="chips" id="fileChips"></div>
+          </div>
+        </div>
+      </label>
+      <div class="field">
+        <label for="prefix">輸出檔名</label>
+        <div class="input-suffix"><input id="prefix" value="片段" autocomplete="off"><span>_01、_02…</span></div>
+      </div>
+      <div class="dest" id="dest" hidden></div>
+    </section>
+
+    <section class="sec">
+      <div class="sec-h"><span class="n">2</span><h2>怎麼切</h2></div>
+      <div class="tabs" role="radiogroup" aria-label="切法">
+        <label><input type="radio" name="mode" value="every" id="modeEvery" checked>每段時間</label>
+        <label><input type="radio" name="mode" value="size" id="modeSize">每段容量</label>
+        <label><input type="radio" name="mode" value="custom" id="modeCustom">自訂範圍</label>
+      </div>
+      <div class="mode-panel" data-mode="every">
+        <label class="label" for="every">每段多長</label>
+        <div class="input-suffix"><input id="every" value="1:00" inputmode="decimal" class="mono"><span>分:秒</span></div>
+        <div class="presets" data-target="every"><button type="button">0:15</button><button type="button">0:30</button><button type="button">1:00</button><button type="button">3:00</button><button type="button">5:00</button></div>
+      </div>
+      <div class="mode-panel" data-mode="size" hidden>
+        <label class="label" for="size">每段最多</label>
+        <div class="input-suffix"><input id="size" value="25" inputmode="decimal" class="mono"><span>MB</span></div>
+        <div class="presets" data-target="size"><button type="button">8</button><button type="button">25</button><button type="button">50</button><button type="button">100</button><button type="button">500</button></div>
+        <span class="hint">切點會落在關鍵影格上，所以每段長度不一定相同。</span>
+      </div>
+      <div class="mode-panel" data-mode="custom" hidden>
+        <label class="label" for="custom">入點-出點，用逗號分開</label>
+        <textarea class="input" id="custom" rows="3" placeholder="0:10-1:30, 2:00-3:15&#10;或只寫切點：1:30 3:00"></textarea>
+        <span class="hint">播放時按 <b>I</b> 標記入點、<b>O</b> 標記出點，會自動填進來。</span>
+      </div>
+      <label class="switch" id="preciseWrap">
+        <input type="checkbox" id="precise">
+        <span class="track" aria-hidden="true"></span>
+        <span><b>精準切點</b><br><span class="hint">重新編碼，切點準到 0.1 秒，但在瀏覽器裡很慢。關閉時不重新編碼，幾秒完成，切點對齊最近的關鍵影格。</span></span>
+      </label>
+    </section>
+
+    <section class="sec">
+      <div class="sec-h"><span class="n">3</span><h2>輸出</h2><span class="aside" id="extTag"></span></div>
+      <div class="summary idle" id="summary">選好影片後會顯示要切成幾段</div>
+      <div class="field" id="packWrap" hidden>
+        <span class="label">多段時</span>
+        <div class="seg-ctl">
+          <label><input type="radio" name="pack" value="zip" checked>打包成 zip 資料夾</label>
+          <label><input type="radio" name="pack" value="each">一個一個存</label>
+        </div>
+      </div>
+      <div class="row">
+        <button class="go" id="startBtn" type="button" disabled>
+          <svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.1 15.9M14.5 14.5 20 20M8.1 8.1 12 12"/></svg>
+          <span id="startText">開始剪輯</span>
+        </button>
+        <button class="btn" id="stopBtn" type="button" hidden>停止</button>
+      </div>
+      <button class="btn" id="saveAgainBtn" type="button" hidden>再存一次</button>
+      <div class="status" id="status" role="status"></div>
+      <div class="diag" id="diag" hidden>
+        <b>引擎檢查結果</b>
+        <ul></ul>
+        <span class="hint">把這幾行截圖或複製給開發者，就能知道是哪一步被擋下。</span>
+      </div>
+    </section>
+  </aside>
+
+  <section class="card stage" aria-label="預覽與段落">
+    <div class="player">
+      <video id="video" playsinline preload="metadata"></video>
+      <div class="empty" id="screenEmpty">
+        <span class="ring"><svg class="i" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span>
+        <b>還沒有影片</b><span>選好影片後，這裡可以播放、拖曳時間軸、標記入點和出點</span>
+      </div>
+      <span class="seg-badge" id="segBadge" hidden></span>
+    </div>
+    <div class="edit">
+      <div>
+        <div class="ruler" id="ruler"></div>
+        <div class="timeline" id="timeline" aria-label="時間軸，點一下或拖曳跳到該位置">
+          <div class="strip" id="strip"></div>
+          <div class="overlay" id="overlay"></div>
+        </div>
+      </div>
+      <div class="transport">
+        <button class="play" id="playBtn" type="button" disabled aria-label="播放（空白鍵）">
+          <svg class="i" id="playIcon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+        </button>
+        <button class="mark in" id="inBtn" type="button" disabled><span class="dot"></span>入點<kbd>I</kbd></button>
+        <button class="mark out" id="outBtn" type="button" disabled><span class="dot"></span>出點<kbd>O</kbd></button>
+        <div class="clock">
+          <div class="tc" id="tc">0:00.0<small> / 0:00</small></div>
+          <div class="where" id="where">&nbsp;</div>
+        </div>
+      </div>
+      <div class="range-info" id="rangeInfo" hidden></div>
+      <div class="list-h">
+        <h3>段落</h3>
+        <span class="total" id="total"></span>
+        <span class="note" id="note"></span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>段</th><th>開始 → 結束</th><th>長度</th><th>容量（約）</th><th>輸出檔名　點一下就能改</th></tr></thead>
+          <tbody id="rows"><tr class="empty-row"><td colspan="5">段落會列在這裡，點一下可以單獨播放那一段</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <span>影片只在這個瀏覽器分頁裡處理，不會上傳。</span>
+  <span>快捷鍵：<kbd>Space</kbd> 播放　<kbd>I</kbd> 入點　<kbd>O</kbd> 出點　<kbd>←</kbd><kbd>→</kbd> 前後 1 秒（加 Shift 10 秒）</span>
+  <span>剪輯引擎：ffmpeg.wasm，第一次開啟要下載約 32 MB</span>
+</footer>
+<div class="dropzone" id="dropzone" hidden><div>放開以載入影片</div></div>
+
+<script src="vendor/ffmpeg.js"></script>
+<script src="vendor/jszip.min.js"></script>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+
+/* ---------- 時間與容量格式 ---------- */
+function parseTime(text) {
+  const parts = String(text).trim().split(":");
+  if (!parts[0] || parts.length > 3) throw new Error("bad time");
+  let s = 0;
+  for (const p of parts) {
+    if (!/^\d+(\.\d+)?$/.test(p.trim())) throw new Error("bad time");
+    s = s * 60 + parseFloat(p);
+  }
+  return s;
+}
+function fmtShort(sec) {
+  const s = Math.round(sec * 10) / 10;
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+  const r = (s % 60).toFixed(1).padStart(4, "0").replace(/\.0$/, "");
+  return h ? `${h}:${String(m).padStart(2, "0")}:${r}` : `${m}:${r}`;
+}
+function fmtClock(sec) { // 時鐘一律顯示到 0.1 秒，數字寬度才不會跳動
+  const s = Math.max(0, Math.floor(sec * 10) / 10);
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+  const r = (s % 60).toFixed(1).padStart(4, "0");
+  return h ? `${h}:${String(m).padStart(2, "0")}:${r}` : `${m}:${r}`;
+}
+function fmtFF(sec) { // 給 ffmpeg 用的 HH:MM:SS.mmm
+  const s = Math.max(0, Math.round(sec * 1000) / 1000);
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${(s % 60).toFixed(3).padStart(6, "0")}`;
+}
+function fmtSize(bytes) {
+  const mb = bytes / 1048576;
+  return mb >= 1024 ? `${(mb / 1024).toFixed(2)} GB` : `${mb.toFixed(1)} MB`;
+}
+function cleanName(name) {
+  return String(name).replace(/[\\/:*?"<>|]/g, "_").replace(/\.(mp4|webm|mov|mkv)$/i, "").trim().replace(/[. ]+$/, "");
+}
+function escapeHTML(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+/* ---------- 狀態 ---------- */
+const S = {
+  file: null, duration: 0, playable: false, index: null, analyzing: false,
+  segments: [], names: {}, pending: null, pos: 0, stopAt: null, running: false, lastOutput: null,
+};
+
+/* ---------- 剪輯引擎（ffmpeg.wasm） ---------- */
+let ffmpeg = null, engineReady = null, wasmURL = null, mountedFile = null, logSink = null;
+const abs = (p) => new URL(p, location.href).href;
+const withTimeout = (p, ms, what) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(what + "逾時")), ms))]);
+
+function setEngine(text, cls) {
+  $("engineText").textContent = text;
+  $("engine").className = "pill" + (cls ? " " + cls : "");
+}
+
+async function fetchWasm() {
+  if (wasmURL) return wasmURL;
+  // 引擎 32 MB 超過單一檔案上限，所以拆成三份，下載後再接回去
+  const parts = ["vendor/core.0.wasm", "vendor/core.1.wasm", "vendor/core.2.wasm"];
+  const total = 32232419;
+  let got = 0;
+  const blobs = [];
+  for (const p of parts) {
+    const res = await fetch(p);
+    if (!res.ok) throw new Error(`下載 ${p} 失敗（${res.status}）`);
+    const reader = res.body.getReader();
+    const chunks = [];
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      got += value.length;
+      setEngine(`下載剪輯引擎 ${Math.min(99, Math.round(got / total * 100))}%`);
+    }
+    blobs.push(new Blob(chunks));
+  }
+  wasmURL = URL.createObjectURL(new Blob(blobs, { type: "application/wasm" }));
+  return wasmURL;
+}
+
+function startEngine() {
+  engineReady = (async () => {
+    if (typeof FFmpegWASM === "undefined") throw new Error("剪輯程式庫沒有載入");
+    const url = await fetchWasm();
+    setEngine("啟動剪輯引擎…");
+    ffmpeg = new FFmpegWASM.FFmpeg();
+    ffmpeg.on("log", ({ message }) => logSink && logSink(message));
+    await withTimeout(ffmpeg.load({ coreURL: abs("vendor/ffmpeg-core.js"), wasmURL: url }), 60000, "啟動引擎");
+    mountedFile = null;
+    setEngine("剪輯引擎就緒", "ready");
+  })().catch(async (e) => {
+    console.error(e);
+    setEngine("剪輯引擎無法啟動", "error");
+    setStatus("剪輯引擎無法啟動：" + (e.message || e) + "。下方是逐項檢查的結果。", "err");
+    showDiagnosis(await diagnose());
+    throw e;
+  });
+  return engineReady;
+}
+
+// 引擎起不來時逐項檢查，找出是哪一步被瀏覽器或網站的安全設定擋下
+async function diagnose() {
+  const out = [];
+  const check = async (name, fn) => {
+    try { const r = await withTimeout(Promise.resolve().then(fn), 8000, ""); out.push([true, name, r || ""]); }
+    catch (e) { out.push([false, name, (e && e.message) || String(e)]); }
+  };
+  const tinyWasm = new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]); // 最小的合法 wasm 模組
+  const inWorker = (src) => new Promise((ok, fail) => {
+    const w = new Worker(URL.createObjectURL(new Blob([src], { type: "text/javascript" })));
+    w.onmessage = (ev) => { w.terminate(); ev.data === "ok" ? ok() : fail(new Error(ev.data)); };
+    w.onerror = (ev) => { w.terminate(); fail(new Error(ev.message || "worker 錯誤")); };
+  });
+  await check("程式庫載入（vendor/ffmpeg.js）", () => { if (typeof FFmpegWASM === "undefined") throw new Error("沒有載入"); });
+  await check("下載引擎檔案", async () => { const r = await fetch("vendor/core.0.wasm", { method: "HEAD" }); if (!r.ok) throw new Error("HTTP " + r.status); });
+  await check("主畫面執行 WebAssembly", async () => { await WebAssembly.instantiate(tinyWasm); });
+  await check("建立背景工作（blob worker）", () => inWorker("postMessage('ok')"));
+  await check("背景工作執行 WebAssembly", () => inWorker(
+    "WebAssembly.instantiate(new Uint8Array([0,97,115,109,1,0,0,0])).then(()=>postMessage('ok'),e=>postMessage(String(e)))"));
+  await check("背景工作載入本站檔案（importScripts）", () => inWorker(
+    `try{importScripts(${JSON.stringify(abs("vendor/jszip.min.js"))});postMessage('ok')}catch(e){postMessage(String(e))}`));
+  await check("建立本站檔案的背景工作", () => new Promise((ok, fail) => {
+    const w = new Worker("vendor/814.ffmpeg.js");
+    w.onerror = (ev) => { w.terminate(); fail(new Error(ev.message || "無法建立")); };
+    setTimeout(() => { w.terminate(); ok(); }, 1500);
+  }));
+  return out;
+}
+function showDiagnosis(items) {
+  const box = $("diag");
+  box.hidden = false;
+  box.querySelector("ul").innerHTML = items.map(([ok, name, msg]) =>
+    `<li class="${ok ? "pass" : "fail"}">${ok ? "✓" : "✗"} ${escapeHTML(name)}${msg ? "：<span>" + escapeHTML(msg) + "</span>" : ""}</li>`).join("");
+}
+
+async function ensureInput() {
+  await engineReady;
+  if (mountedFile === S.file) return "/in/" + S.file.name;
+  if (mountedFile) { try { await ffmpeg.unmount("/in"); } catch (_) {} }
+  try { await ffmpeg.createDir("/in"); } catch (_) {}
+  await ffmpeg.mount("WORKERFS", { files: [S.file] }, "/in");
+  mountedFile = S.file;
+  return "/in/" + S.file.name;
+}
+
+async function run(args, onLog) {
+  const lines = [];
+  logSink = (m) => { lines.push(m); if (lines.length > 400) lines.shift(); onLog && onLog(m); };
+  try { return { code: await ffmpeg.exec(args), log: lines }; }
+  finally { logSink = null; }
+}
+
+/* ---------- 影片分析：每個封包的時間和大小 ---------- */
+// 用 ffmpeg -c copy -f framecrc 讀一遍檔案（不解碼）。之後任何時間範圍的容量都能馬上算出來，
+// 而且知道關鍵影格在哪：快速模式只能從關鍵影格開始，所以容量要從入點前一個關鍵影格算起。
+function buildIndex(text) {
+  const tb = {}, video = new Set(), pk = [], keys = [];
+  for (const line of text.split("\n")) {
+    if (line.startsWith("#tb")) {
+      const m = line.match(/^#tb (\d+): (\d+)\/(\d+)/);
+      if (m) tb[m[1]] = m[2] / m[3];
+    } else if (line.startsWith("#media_type")) {
+      const m = line.match(/^#media_type (\d+): video/);
+      if (m) video.add(m[1]);
+    } else if (line && line[0] !== "#") {
+      const p = line.split(",").map((x) => x.trim());
+      if (p.length < 5) continue;
+      const ts = /^-?\d+$/.test(p[2]) ? +p[2] : +p[1];
+      if (!Number.isFinite(ts)) continue;
+      const t = ts * (tb[p[0]] || 0);
+      pk.push([t, +p[4]]);
+      const flag = p.slice(6).find((x) => x.startsWith("F="));
+      if (video.has(p[0]) && (!flag || (parseInt(flag.slice(2), 16) & 1))) keys.push(t);
+    }
+  }
+  if (!pk.length) return null;
+  pk.sort((a, b) => a[0] - b[0]);
+  const t0 = pk[0][0];
+  const times = new Float64Array(pk.length), cum = new Float64Array(pk.length + 1);
+  pk.forEach(([t, size], i) => { times[i] = t - t0; cum[i + 1] = cum[i] + size; });
+  const k = keys.map((x) => Math.max(0, x - t0)).sort((a, b) => a - b);
+  return { times, cum, keys: k.length ? k : [0] };
+}
+function lowerBound(arr, x) { let lo = 0, hi = arr.length; while (lo < hi) { const mid = (lo + hi) >> 1; if (arr[mid] < x) lo = mid + 1; else hi = mid; } return lo; }
+function keyBefore(t) { const k = S.index.keys; return k[Math.max(0, lowerBound(k, t + 0.001) - 1)]; }
+function bytesBetween(a, b, fromKey) {
+  const ix = S.index;
+  if (fromKey) a = keyBefore(a);
+  return ix.cum[lowerBound(ix.times, b)] - ix.cum[lowerBound(ix.times, a)];
+}
+function estimate(a, b) {
+  if (S.index) return bytesBetween(a, b, !isPrecise()) * 1.01; // +1%：mp4 檔本身的索引
+  return S.file ? S.file.size / S.duration * (b - a) : 0;
+}
+
+async function analyze() {
+  S.analyzing = true; S.index = null; refresh();
+  const file = S.file;
+  try {
+    const input = await ensureInput();
+    const { log } = await run(["-hide_banner", "-i", input, "-c", "copy", "-f", "framecrc", "/index.txt"]);
+    if (file !== S.file) return;
+    const d = log.join("\n").match(/Duration:\s*(\d+):(\d+):([\d.]+)/);
+    if (d) S.duration = +d[1] * 3600 + +d[2] * 60 + +d[3];
+    try {
+      S.index = buildIndex(await ffmpeg.readFile("/index.txt", "utf8"));
+      await ffmpeg.deleteFile("/index.txt");
+    } catch (_) { S.index = null; }
+    if (!S.duration) throw new Error("讀不到影片長度，檔案可能損壞或格式不支援");
+    setStatus("");
+  } catch (e) {
+    if (file === S.file) setStatus("分析失敗：" + (e.message || e), "err");
+  } finally {
+    if (file === S.file) { S.analyzing = false; updateChips(); refresh(); }
+  }
+}
+
+/* ---------- 縮圖（左欄小圖＋時間軸膠卷） ---------- */
+let thumbJob = 0;
+async function makeThumbs(file) {
+  const job = ++thumbJob;
+  $("strip").innerHTML = ""; $("fileThumb").innerHTML = "";
+  const v = document.createElement("video");
+  v.muted = true; v.preload = "auto"; v.playsInline = true;
+  const url = URL.createObjectURL(file);
+  v.src = url;
+  const seekTo = (t) => withTimeout(new Promise((ok) => { v.onseeked = ok; v.currentTime = t; }), 4000, "");
+  try {
+    await withTimeout(new Promise((ok, fail) => { v.onloadeddata = ok; v.onerror = fail; }), 8000, "");
+    const dur = v.duration;
+    if (!Number.isFinite(dur) || !v.videoWidth) return;
+    const aspect = v.videoWidth / v.videoHeight;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const box = $("timeline");
+    const h = Math.round(box.clientHeight * dpr), w = Math.round(h * aspect);
+    const n = Math.max(4, Math.ceil(box.clientWidth * dpr / w));
+    const strip = document.createElement("canvas");
+    strip.width = w * n; strip.height = h;
+    $("strip").appendChild(strip);
+    const ctx = strip.getContext("2d");
+    for (let i = 0; i < n; i++) {
+      if (job !== thumbJob) return;
+      await seekTo(Math.min(dur - 0.05, (i + 0.5) * dur / n)).catch(() => {});
+      ctx.drawImage(v, i * w, 0, w, h);
+      if (i === Math.floor(n / 3)) { // 左欄小圖用三分之一處的畫面
+        const c = document.createElement("canvas");
+        c.width = 160; c.height = 90;
+        const s = Math.max(160 / v.videoWidth, 90 / v.videoHeight);
+        c.getContext("2d").drawImage(v, (160 - v.videoWidth * s) / 2, (90 - v.videoHeight * s) / 2, v.videoWidth * s, v.videoHeight * s);
+        $("fileThumb").appendChild(c);
+      }
+    }
+  } catch (_) {
+    /* 瀏覽器無法解碼這個格式，就不顯示縮圖 */
+  } finally { v.removeAttribute("src"); v.load(); URL.revokeObjectURL(url); }
+}
+
+/* ---------- 讀取影片 ---------- */
+function loadFile(file) {
+  if (!file || S.running) return;
+  stopPlayback();
+  S.file = file; S.duration = 0; S.index = null; S.names = {}; S.pending = null; S.pos = 0; S.lastOutput = null;
+  $("saveAgainBtn").hidden = true;
+  $("diag").hidden = !!ffmpeg;
+  $("prefix").value = cleanName(file.name.replace(/\.[^.]+$/, "")) || "片段";
+  $("fileEmpty").hidden = true; $("fileLoaded").hidden = false; $("fileBox").classList.add("loaded");
+  $("fileName").textContent = file.name;
+  updateChips();
+
+  const v = video;
+  if (v.src) URL.revokeObjectURL(v.src);
+  S.playable = false;
+  $("screenEmpty").hidden = false;
+  $("screenEmpty").innerHTML = "<b>讀取中…</b>";
+  v.onloadedmetadata = () => {
+    S.playable = true;
+    $("screenEmpty").hidden = true;
+    if (!S.duration && Number.isFinite(v.duration)) S.duration = v.duration;
+    updateChips(); refresh();
+  };
+  v.onerror = () => {
+    S.playable = false;
+    $("screenEmpty").hidden = false;
+    $("screenEmpty").innerHTML = "<b>瀏覽器無法預覽這個格式</b><span>還是可以照常設定和剪輯，只是看不到畫面</span>";
+  };
+  v.src = URL.createObjectURL(file);
+  setStatus("");
+  refresh();
+  makeThumbs(file);
+  analyze();
+}
+
+function updateChips() {
+  if (!S.file) return;
+  const chips = [];
+  if (S.duration) chips.push(fmtShort(S.duration));
+  if (video.videoWidth) chips.push(`${video.videoWidth}×${video.videoHeight}`);
+  chips.push(fmtSize(S.file.size));
+  $("fileChips").innerHTML = chips.map((c) => `<span class="chip">${escapeHTML(c)}</span>`).join("") +
+    `<button class="link" type="button" id="changeFile">換一部</button>`;
+  $("changeFile").onclick = (ev) => { ev.preventDefault(); $("file").click(); };
+}
+
+/* ---------- 切法 ---------- */
+const mode = () => document.querySelector("input[name=mode]:checked").value;
+const isPrecise = () => $("precise").checked && mode() !== "size";
+
+function splitEvery(len, dur) {
+  if (!(len > 0)) throw new Error("每段長度要大於 0");
+  const out = [];
+  for (let s = 0; dur - s > 0.5; s += len) out.push([s, Math.min(s + len, dur)]);
+  return out;
+}
+function parseCustom(text, dur) {
+  text = text.replace(/，/g, ",").replace(/[～~]/g, "-");
+  if (!text.trim()) throw new Error("輸入入點和出點，或在右邊按 I、O 標記");
+  let segs;
+  if (text.includes("-")) {
+    segs = text.split(/[,\n;]+/).filter((x) => x.trim()).map((item) => {
+      const [a, b] = item.split("-");
+      if (b === undefined) throw new Error("bad");
+      return [parseTime(a), Math.min(parseTime(b), dur)];
+    });
+  } else {
+    const pts = text.split(/[\s,]+/).filter(Boolean).map(parseTime).filter((p) => p > 0 && p < dur).sort((a, b) => a - b);
+    const all = [0, ...pts, dur];
+    segs = all.slice(1).map((e, i) => [all[i], e]);
+  }
+  segs.forEach(([a, b], i) => { if (!(a < b)) throw new Error(`第 ${i + 1} 段的開始時間要早於結束時間`); });
+  return segs;
+}
+// 依容量規劃：從關鍵影格開始，盡量往後延伸到「下一個關鍵影格」，只要容量不超過上限
+function planBySize(limit) {
+  const keys = S.index.keys, dur = S.duration, segs = [];
+  let s = 0, warn = false;
+  while (dur - s > 0.5) {
+    if (estimate(s, dur) <= limit) { segs.push([s, dur]); break; }
+    let i = lowerBound(keys, s + 0.05), best = null;
+    for (; i < keys.length; i++) {
+      if (estimate(s, keys[i]) <= limit) best = keys[i]; else break;
+    }
+    if (best === null) { best = keys[lowerBound(keys, s + 0.05)] ?? dur; warn = true; }
+    segs.push([s, best]);
+    s = best;
+  }
+  return { segs, warn };
+}
+function computeSegments() {
+  const dur = S.duration, m = mode();
+  if (m === "every") return { segs: splitEvery(parseTime($("every").value), dur) };
+  if (m === "custom") return { segs: parseCustom($("custom").value, dur) };
+  const mb = parseFloat($("size").value);
+  if (!(mb > 0)) throw new Error("容量請輸入大於 0 的數字");
+  if (!S.index) return { segs: [], waiting: true };
+  const r = planBySize(mb * 1048576 * 0.97); // 留 3% 餘量，估算偏低時也不會超過上限
+  return { segs: r.segs, note: r.warn ? "有些片段的關鍵影格間隔太長，無法壓在上限以內" : "" };
+}
+
+const extOut = () => (!isPrecise() && /\.webm$/i.test(S.file?.name || "")) ? "webm" : "mp4";
+const prefix = () => cleanName($("prefix").value) || "片段";
+const nameOf = (i) => S.names[i] || `${prefix()}_${String(i + 1).padStart(2, "0")}`;
+
+/* ---------- 畫面更新 ---------- */
+function setStatus(text, cls) { const el = $("status"); el.textContent = text; el.className = "status" + (cls ? " " + cls : ""); }
+function setProgress(pct) { $("startBtn").style.setProperty("--p", pct + "%"); }
+
+function refresh() {
+  const has = !!S.file && S.duration > 0;
+  document.querySelectorAll(".mode-panel").forEach((p) => { p.hidden = p.dataset.mode !== mode(); });
+  $("preciseWrap").classList.toggle("disabled", mode() === "size");
+  $("precise").disabled = mode() === "size";
+
+  let segs = [], err = "", note = "", waiting = false;
+  if (has) {
+    try { const r = computeSegments(); segs = r.segs; note = r.note || ""; waiting = !!r.waiting; }
+    catch (e) { err = e.message === "bad time" || e.message === "bad" ? "看不懂輸入的時間，請用 90、1:30、1:02:30 這種格式" : e.message; }
+  }
+  S.segments = segs;
+  const totalBytes = segs.reduce((a, [s, e]) => a + estimate(s, e), 0);
+
+  const sum = $("summary");
+  if (!S.file) { sum.className = "summary idle"; sum.textContent = "選好影片後會顯示要切成幾段"; }
+  else if (!has || (S.analyzing && mode() === "size") || waiting) { sum.className = "summary idle"; sum.textContent = "正在分析影片…"; }
+  else if (err) { sum.className = "summary idle"; sum.textContent = err; }
+  else { sum.className = "summary"; sum.innerHTML = `<span class="big">${segs.length}<small>段</small></span><span class="hint">合計約 ${fmtSize(totalBytes)}</span>`; }
+
+  const ext = extOut();
+  $("extTag").textContent = S.file ? `輸出 .${ext}` : "";
+  $("packWrap").hidden = segs.length < 2;
+  const zip = document.querySelector("input[name=pack]:checked").value === "zip";
+  const folderIcon = `<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>`;
+  $("dest").hidden = !segs.length;
+  $("dest").innerHTML = !segs.length ? "" : folderIcon + "<span>" + (segs.length === 1
+    ? `存成 <code>${escapeHTML(nameOf(0))}.${ext}</code>`
+    : zip ? `存成 <code>${escapeHTML(prefix())}.zip</code>，解壓後是 <code>${escapeHTML(prefix())}</code> 資料夾，裡面有 ${segs.length} 個檔案`
+          : `一個一個存 ${segs.length} 個 ${ext} 檔，每個都會詢問一次`) + "</span>";
+
+  renderRows(ext);
+  $("total").innerHTML = segs.length ? `共 <b>${segs.length}</b> 段，合計約 <b>${fmtSize(totalBytes)}</b>` : "";
+  $("note").textContent = !has ? "" : [
+    note,
+    S.analyzing ? "正在分析影片，容量暫時用平均值估算" : isPrecise() ? "精準模式會重新編碼，實際容量可能跟預估差很多" : "",
+  ].filter(Boolean).join("　");
+
+  $("startBtn").disabled = !segs.length || S.running || S.analyzing || !ffmpeg || !!err;
+  $("playBtn").disabled = !S.playable;
+  $("inBtn").disabled = !has;
+  $("outBtn").disabled = !has || S.pending === null;
+  $("inBtn").classList.toggle("armed", S.pending !== null);
+  drawRuler();
+  drawTimeline();
+}
+
+function renderRows(ext) {
+  const body = $("rows");
+  if (document.activeElement?.dataset?.row !== undefined) return; // 正在改檔名時不重畫，免得游標跳掉
+  if (!S.segments.length) {
+    body.innerHTML = `<tr class="empty-row"><td colspan="5">${S.file ? "設定好切法後，段落會列在這裡" : "段落會列在這裡，點一下可以單獨播放那一段"}</td></tr>`;
+    return;
+  }
+  const sizes = S.segments.map(([s, e]) => estimate(s, e));
+  const max = Math.max(...sizes) || 1;
+  body.innerHTML = S.segments.map(([s, e], i) => `
+    <tr data-i="${i}">
+      <td><span class="idx" style="background:var(${i % 2 ? "--seg-b" : "--seg-a"})">${i + 1}</span></td>
+      <td class="t"><b>${fmtShort(s)}</b> → <b>${fmtShort(e)}</b></td>
+      <td class="t">${fmtShort(e - s)}</td>
+      <td><div class="sz"><span>${fmtSize(sizes[i])}</span><i style="--w:${(sizes[i] / max * 100).toFixed(1)}%"></i></div></td>
+      <td><input data-row="${i}" value="${escapeHTML(nameOf(i))}" aria-label="第 ${i + 1} 段輸出檔名" title="輸出檔名，.${ext}"></td>
+    </tr>`).join("");
+  highlightRow();
+}
+
+function segmentAt(t) { return S.segments.findIndex(([s, e]) => t >= s && t < e); }
+function highlightRow() {
+  const i = segmentAt(S.pos);
+  document.querySelectorAll("#rows tr[data-i]").forEach((tr) => tr.classList.toggle("on", +tr.dataset.i === i));
+  document.querySelectorAll("#overlay .seg").forEach((el, k) => el.classList.toggle("on", k === i));
+}
+
+function drawRuler() {
+  const dur = S.duration, el = $("ruler");
+  if (!dur) { el.innerHTML = ""; return; }
+  const steps = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200];
+  const want = Math.max(3, Math.floor(el.clientWidth / 80));
+  const step = steps.find((s) => dur / s <= want) || 7200;
+  let html = "";
+  for (let t = 0; t <= dur + 0.001; t += step) {
+    if (t > 0 && (dur - t) / dur < 0.04) break; // 太靠近右邊就不畫，免得被切掉
+    html += `<span style="left:${(t / dur * 100).toFixed(3)}%">${fmtShort(t)}</span>`;
+  }
+  el.innerHTML = html;
+}
+
+function drawTimeline() {
+  const ov = $("overlay"), dur = S.duration;
+  if (!dur) { ov.innerHTML = ""; return; }
+  const pct = (t) => (t / dur * 100).toFixed(3) + "%";
+  let html = S.segments.map(([s, e], i) =>
+    `<div class="seg ${i % 2 ? "b" : "a"}" style="left:calc(${pct(s)} + 1px);width:calc(${pct(e - s)} - 2px)">${(e - s) / dur > 0.03 ? `<b>${i + 1}</b>` : ""}</div>`).join("");
+  if (S.pending !== null) html += `<div class="range" id="range"></div>`;
+  html += `<div class="head" id="head"></div>`;
+  ov.innerHTML = html;
+  updateClock();
+}
+
+function updateClock() {
+  const dur = S.duration;
+  $("tc").innerHTML = `${fmtClock(S.pos)}<small> / ${fmtShort(dur)}</small>`;
+  const head = $("head");
+  if (head && dur) head.style.left = (S.pos / dur * 100) + "%";
+  const i = segmentAt(S.pos);
+  const where = !S.segments.length ? "" : i >= 0 ? `第 ${i + 1} 段` : "這裡不會被輸出";
+  $("where").textContent = where || " ";
+  $("segBadge").hidden = !where || !S.playable;
+  $("segBadge").textContent = where;
+  const info = $("rangeInfo");
+  if (S.pending !== null && dur) {
+    const a = Math.min(S.pending, S.pos), b = Math.max(S.pending, S.pos);
+    info.hidden = false;
+    info.innerHTML = `<span>入點 ${fmtShort(S.pending)} → 這裡　${fmtShort(b - a)}　約 ${fmtSize(estimate(a, b))}</span><span class="hint">按 O 加入這段</span>`;
+    const r = $("range");
+    if (r) { r.style.left = (a / dur * 100) + "%"; r.style.width = ((b - a) / dur * 100) + "%"; }
+  } else info.hidden = true;
+  highlightRow();
+}
+
+/* ---------- 播放與時間軸 ---------- */
+const video = $("video");
+function seek(t) {
+  S.pos = Math.max(0, Math.min(t, S.duration));
+  if (S.playable) video.currentTime = S.pos;
+  updateClock();
+}
+function stopPlayback() { S.stopAt = null; if (!video.paused) video.pause(); }
+function playRange(a, b) {
+  if (!S.playable) return;
+  S.stopAt = b;
+  video.currentTime = a;
+  video.play().catch(() => {});
+}
+function tick() {
+  if (!video.paused) {
+    S.pos = video.currentTime;
+    if (S.stopAt !== null && S.pos >= S.stopAt) { video.pause(); S.pos = S.stopAt; S.stopAt = null; }
+    updateClock();
+  }
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+const PLAY = '<path d="M8 5v14l11-7z"/>', PAUSE = '<path d="M7 5h4v14H7zM13 5h4v14h-4z"/>';
+video.addEventListener("play", () => { $("playIcon").innerHTML = PAUSE; });
+video.addEventListener("pause", () => { $("playIcon").innerHTML = PLAY; updateClock(); });
+video.addEventListener("click", () => togglePlay());
+
+function togglePlay() {
+  if (!S.playable) return;
+  if (video.paused) { S.stopAt = null; if (S.pos >= S.duration - 0.2) seek(0); video.play().catch(() => {}); }
+  else stopPlayback();
+}
+$("playBtn").onclick = togglePlay;
+
+const tl = $("timeline");
+let scrubbing = false;
+function scrubTo(ev) {
+  const r = tl.getBoundingClientRect();
+  stopPlayback();
+  seek((ev.clientX - r.left) / r.width * S.duration);
+}
+tl.addEventListener("pointerdown", (ev) => { if (!S.duration) return; scrubbing = true; tl.setPointerCapture(ev.pointerId); scrubTo(ev); });
+tl.addEventListener("pointermove", (ev) => { if (scrubbing) scrubTo(ev); });
+tl.addEventListener("pointerup", () => { scrubbing = false; });
+window.addEventListener("resize", () => { drawRuler(); });
+
+/* ---------- 入點／出點 ---------- */
+function markIn(t) { S.pending = t; refresh(); }
+function markOut(t) {
+  if (S.pending === null || t <= S.pending) { markIn(t); return; } // 出點比入點早 → 改當新的入點
+  const item = `${fmtShort(S.pending)}-${fmtShort(t)}`;
+  const box = $("custom");
+  let text = box.value.trim().replace(/[,，]+$/, "").trim();
+  if (text && !text.includes("-")) text = ""; // 原本是切點寫法，不能跟區段混用
+  box.value = text ? `${text}, ${item}` : item;
+  S.pending = null;
+  $("modeCustom").checked = true;
+  refresh();
+}
+$("inBtn").onclick = () => markIn(S.pos);
+$("outBtn").onclick = () => markOut(S.pos);
+
+document.addEventListener("keydown", (ev) => {
+  if (ev.target.closest("input, textarea") || ev.ctrlKey || ev.metaKey || ev.altKey || !S.duration) return;
+  const k = ev.key.toLowerCase();
+  if (k === " ") { ev.preventDefault(); togglePlay(); }
+  else if (k === "i") markIn(S.pos);
+  else if (k === "o") markOut(S.pos);
+  else if (k === "escape" && S.pending !== null) { S.pending = null; refresh(); }
+  else if (k === "arrowleft") { ev.preventDefault(); seek(S.pos - (ev.shiftKey ? 10 : 1)); }
+  else if (k === "arrowright") { ev.preventDefault(); seek(S.pos + (ev.shiftKey ? 10 : 1)); }
+});
+
+/* ---------- 段落表 ---------- */
+$("rows").addEventListener("click", (ev) => {
+  if (ev.target.closest("input")) return;
+  const tr = ev.target.closest("tr[data-i]");
+  if (!tr) return;
+  const [s, e] = S.segments[+tr.dataset.i];
+  seek(s);
+  playRange(s, e);
+});
+$("rows").addEventListener("change", (ev) => {
+  const i = ev.target.dataset.row;
+  if (i === undefined) return;
+  const name = cleanName(ev.target.value);
+  const def = `${prefix()}_${String(+i + 1).padStart(2, "0")}`;
+  if (!name || name === def) delete S.names[i]; else S.names[i] = name;
+  ev.target.value = nameOf(+i);
+  ev.target.blur();
+  refresh();
+});
+$("rows").addEventListener("keydown", (ev) => { if (ev.key === "Enter" && ev.target.dataset.row !== undefined) ev.target.blur(); });
+$("rows").addEventListener("focusout", () => setTimeout(() => { if (!document.activeElement?.dataset?.row) refresh(); }, 0));
+
+/* ---------- 選檔與拖放 ---------- */
+$("file").addEventListener("change", (ev) => { loadFile(ev.target.files[0]); ev.target.value = ""; });
+$("fileBox").addEventListener("click", (ev) => { if ($("fileBox").classList.contains("loaded") && !ev.target.closest("#changeFile")) ev.preventDefault(); });
+$("screenEmpty").addEventListener("click", () => { if (!S.file) $("file").click(); });
+let dragDepth = 0;
+document.addEventListener("dragenter", (ev) => { if ([...ev.dataTransfer.types].includes("Files")) { dragDepth++; $("dropzone").hidden = false; } });
+document.addEventListener("dragleave", () => { if (--dragDepth <= 0) { dragDepth = 0; $("dropzone").hidden = true; } });
+document.addEventListener("dragover", (ev) => ev.preventDefault());
+document.addEventListener("drop", (ev) => {
+  ev.preventDefault(); dragDepth = 0; $("dropzone").hidden = true;
+  const f = ev.dataTransfer.files[0];
+  if (f) loadFile(f);
+});
+
+["every", "size", "custom", "prefix"].forEach((id) => $(id).addEventListener("input", refresh));
+document.querySelectorAll("input[name=mode], input[name=pack], #precise").forEach((el) => el.addEventListener("change", refresh));
+document.querySelectorAll(".presets").forEach((box) => box.addEventListener("click", (ev) => {
+  const b = ev.target.closest("button");
+  if (b) { $(box.dataset.target).value = b.textContent; refresh(); }
+}));
+
+/* ---------- 剪輯 ---------- */
+let cancelled = false;
+async function startCut() {
+  if (S.running || !S.segments.length) return;
+  const segs = S.segments.slice(), precise = isPrecise(), ext = extOut();
+  const names = segs.map((_, i) => nameOf(i));
+  const dupe = names.find((n, i) => names.findIndex((x) => x.toLowerCase() === n.toLowerCase()) !== i);
+  if (dupe) { setStatus(`檔名「${dupe}」重複了，請改成不同的名字`, "err"); return; }
+
+  S.running = true; cancelled = false; S.lastOutput = null;
+  stopPlayback();
+  $("stopBtn").hidden = false; $("saveAgainBtn").hidden = true;
+  refresh();
+  const btn = $("startBtn");
+  btn.classList.add("running"); btn.disabled = false;
+  setProgress(0);
+  const total = segs.reduce((a, [s, e]) => a + (e - s), 0);
+  let done = 0;
+  const show = (pct) => { setProgress(pct); $("startText").textContent = `剪輯中 ${Math.floor(pct)}%`; };
+  const outputs = [];
+  try {
+    const input = await ensureInput();
+    for (let i = 0; i < segs.length; i++) {
+      const [s, e] = segs[i], len = e - s;
+      setStatus(`第 ${i + 1} / ${segs.length} 段　${fmtShort(s)} → ${fmtShort(e)}`);
+      const out = `/out.${ext}`;
+      const args = ["-hide_banner", "-ss", fmtFF(s), "-i", input, "-t", fmtFF(len)];
+      if (precise) args.push("-c:v", "libx264", "-preset", "ultrafast", "-crf", "20", "-c:a", "aac", "-b:a", "160k");
+      else args.push("-c", "copy", "-avoid_negative_ts", "make_zero");
+      args.push("-y", out);
+      const { code, log } = await run(args, (m) => {
+        const t = m.match(/time=(\d+):(\d+):([\d.]+)/);
+        if (t) show(Math.min(100, (done + Math.min(+t[1] * 3600 + +t[2] * 60 + +t[3], len)) / total * 100));
+      });
+      if (cancelled) return;
+      if (code !== 0) throw new Error(`第 ${i + 1} 段失敗：` + (log.filter((l) => /error|invalid|not/i.test(l)).slice(-2).join(" ") || `代碼 ${code}`));
+      const data = await ffmpeg.readFile(out);
+      await ffmpeg.deleteFile(out);
+      outputs.push({ name: `${names[i]}.${ext}`, data });
+      done += len;
+      show(done / total * 100);
+    }
+    let result;
+    if (outputs.length === 1) result = { files: [{ name: outputs[0].name, blob: new Blob([outputs[0].data], { type: `video/${ext}` }) }] };
+    else if (document.querySelector("input[name=pack]:checked").value === "zip") {
+      $("startText").textContent = "打包 zip…";
+      const zip = new JSZip(), folder = zip.folder(prefix());
+      outputs.forEach((o) => folder.file(o.name, o.data));
+      result = { files: [{ name: `${prefix()}.zip`, blob: await zip.generateAsync({ type: "blob", compression: "STORE" }) }] };
+    } else result = { files: outputs.map((o) => ({ name: o.name, blob: new Blob([o.data], { type: `video/${ext}` }) })) };
+    S.lastOutput = result;
+    show(100);
+    $("startText").textContent = "儲存中…";
+    await saveAll(result);
+  } catch (e) {
+    if (!cancelled) setStatus(e.message || String(e), "err");
+  } finally {
+    S.running = false;
+    btn.classList.remove("running");
+    $("startText").textContent = "開始剪輯";
+    setProgress(0);
+    $("stopBtn").hidden = true;
+    refresh();
+  }
+}
+
+async function getDownloads() {
+  if (!window.claude?.use) return undefined; // 不在 Claude 裡打開（例如自己架站）→ 用一般下載
+  try { return await window.claude.use("downloads"); } catch (_) { return null; }
+}
+async function saveOne(name, blob) {
+  const dl = await getDownloads();
+  if (dl === undefined) {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = name; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+    return true;
+  }
+  if (dl === null) throw new Error("這個檢視方式不能儲存檔案。請在瀏覽器裡直接打開這個頁面再試一次。");
+  try { await dl.save({ filename: name, data: blob }); return true; }
+  catch (e) {
+    if (e?.code === "declined") return false;
+    if (e?.code === "rate_limited") { await new Promise((r) => setTimeout(r, 1500)); return saveOne(name, blob); }
+    throw new Error("儲存失敗：" + (e?.message || e?.code || e));
+  }
+}
+async function saveAll(result) {
+  let saved = 0;
+  for (const f of result.files) {
+    setStatus(`儲存 ${f.name}（${fmtSize(f.blob.size)}）`);
+    if (await saveOne(f.name, f.blob)) saved++;
+  }
+  const n = result.files.length;
+  if (saved === n) setStatus(n === 1 ? `完成！已儲存 ${result.files[0].name}` : `完成！已儲存 ${n} 個檔案`, "ok");
+  else setStatus(`剪好了，但有 ${n - saved} 個檔案沒有儲存。按「再存一次」可以重新儲存。`, "err");
+  $("saveAgainBtn").hidden = saved === n;
+}
+
+$("startBtn").onclick = () => { if (!S.running) startCut(); };
+$("saveAgainBtn").onclick = () => S.lastOutput && saveAll(S.lastOutput).catch((e) => setStatus(e.message, "err"));
+$("stopBtn").onclick = async () => {
+  if (!S.running) return;
+  cancelled = true;
+  try { ffmpeg.terminate(); } catch (_) {}
+  ffmpeg = null;
+  setStatus("已停止，正在重新啟動剪輯引擎…");
+  await startEngine().catch(() => {});
+  setStatus("已停止");
+  refresh();
+};
+
+/* ---------- 深淺色 ---------- */
+const root = document.documentElement;
+const SUN = '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>';
+const MOON = '<path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/>';
+function effectiveDark() { return root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches; }
+function themeIcon() {
+  $("themeIcon").innerHTML = effectiveDark() ? SUN : MOON;
+  $("themeBtn").title = effectiveDark() ? "切換成淺色" : "切換成深色";
+}
+try { const t = localStorage.getItem("vcut-theme"); if (t === "dark" || t === "light") root.dataset.theme = t; } catch (_) {}
+$("themeBtn").onclick = () => {
+  const t = effectiveDark() ? "light" : "dark";
+  root.dataset.theme = t;
+  try { localStorage.setItem("vcut-theme", t); } catch (_) {}
+  themeIcon();
+};
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", themeIcon);
+themeIcon();
+
+startEngine().then(refresh, () => {});
+refresh();
+</script>
