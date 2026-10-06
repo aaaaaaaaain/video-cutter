@@ -139,6 +139,18 @@ textarea.input { resize: vertical; min-height: 78px; font-family: var(--font-mon
 .check2 { display: flex; gap: 8px; align-items: center; font-size: 13px; cursor: pointer; }
 .check2 input { accent-color: var(--accent); width: 15px; height: 15px; margin: 0; }
 .add-music { justify-content: flex-start; padding: 10px 12px; border-style: dashed; background: var(--panel-2); color: var(--muted); }
+.wave { position: relative; height: 76px; border-radius: 9px; background: var(--panel); border: 1px solid var(--line); overflow: hidden; cursor: pointer; touch-action: none; user-select: none; }
+.wave canvas { width: 100%; height: 100%; display: block; }
+.wave.dragging { cursor: ew-resize; }
+.wave-head { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--ink); pointer-events: none; }
+.wave-empty { position: absolute; inset: 0; display: grid; place-items: center; font-size: 12px; color: var(--faint); }
+.trim { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.trim label { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
+.trim .input { width: 78px; padding: 5px 8px; font-family: var(--font-mono); font-size: 12.5px; }
+.trim .len { margin-left: auto; font: 500 12px var(--font-mono); color: var(--muted); }
+.mini-play { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--line); background: var(--panel); display: grid; place-items: center; cursor: pointer; color: var(--accent); flex: none; }
+.mini-play:hover { border-color: var(--accent); }
+.mini-play svg { width: 14px; height: 14px; }
 
 .summary { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .summary .big { font: 700 26px/1 var(--font-mono); color: var(--ink); }
@@ -337,6 +349,18 @@ footer kbd { font: 700 10.5px var(--font-mono); padding: 1px 5px; border-radius:
           <div><b id="musicName"></b><span class="hint" id="musicMeta"></span></div>
           <button class="link" id="musicRemove" type="button">移除</button>
         </div>
+        <div class="wave" id="wave" aria-label="音樂波形，拖曳兩側的把手設定開始和結束">
+          <canvas id="waveCanvas"></canvas>
+          <div class="wave-head" id="waveHead" hidden></div>
+          <div class="wave-empty" id="waveEmpty">正在讀取波形…</div>
+        </div>
+        <div class="trim">
+          <button class="mini-play" id="musicPreview" type="button" aria-label="試聽選取的範圍"><svg id="musicPreviewIcon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button>
+          <label>開始 <input class="input" id="mStart" value="0:00" inputmode="decimal"></label>
+          <label>結束 <input class="input" id="mEnd" value="" inputmode="decimal"></label>
+          <span class="len" id="mLen"></span>
+        </div>
+        <span class="hint">拖曳波形兩側的把手，或直接輸入時間。點波形其他地方會從那裡試聽。</span>
         <div class="slider"><label for="volOrig">影片原聲</label><input type="range" id="volOrig" min="0" max="100" value="100"><output id="volOrigOut">100%</output></div>
         <div class="slider"><label for="volMusic">音樂</label><input type="range" id="volMusic" min="0" max="150" value="70"><output id="volMusicOut">70%</output></div>
         <div class="seg-ctl">
@@ -1060,11 +1084,13 @@ const musicOpts = () => ({
   fade: $("mfade").checked,
   continueOn: document.querySelector("input[name=mstart]:checked").value === "continue",
 });
-// 第 i 段的音樂從哪裡開始：每段從頭播 = 0；接續 = 前面各段長度加總（超過音樂長度就繞回開頭）
+// 使用的音樂範圍（使用者在波形上選的開始～結束）
+const musicLen = () => S.music ? Math.max(0.1, S.music.end - S.music.start) : 0;
+// 第 i 段的音樂從範圍內的哪裡開始：每段從頭播 = 0；接續 = 前面各段長度加總（超過範圍長度就繞回開頭）
 function musicOffset(segs, i) {
   if (!S.music || !musicOpts().continueOn) return 0;
   const before = segs.slice(0, i).reduce((a, [s, e]) => a + (e - s), 0);
-  return S.music.duration ? before % S.music.duration : 0;
+  return before % musicLen();
 }
 const fadeLens = (len) => ({ fin: Math.min(1, len / 4), fout: Math.min(2, len / 3) });
 
@@ -1078,10 +1104,16 @@ function cutArgs(segs, i, input, musicPath, precise, out) {
     else args.push("-c", "copy", "-avoid_negative_ts", "make_zero");
     return [...args, "-y", out];
   }
-  // 音樂無限重複（-stream_loop -1），由輸出的 -t 截到這段的長度
-  const o = musicOpts();
-  args.push("-stream_loop", "-1", "-ss", fmtFF(musicOffset(segs, i)), "-i", musicPath);
-  let m = `[1:a]aresample=48000,aformat=channel_layouts=stereo,volume=${o.music.toFixed(2)}`;
+  // 音樂：先截出選取的範圍 → 用 aloop 無限重複這一段 → 從這段該開始的位置切入
+  const o = musicOpts(), mu = S.music;
+  args.push("-i", musicPath);
+  const loopSamples = Math.round(musicLen() * 48000);
+  const off = musicOffset(segs, i);
+  let m = `[1:a]aresample=48000,aformat=channel_layouts=stereo,` +
+    `atrim=start=${mu.start.toFixed(3)}:end=${mu.end.toFixed(3)},asetpts=N/SR/TB,` +
+    `aloop=loop=-1:size=${loopSamples},asetpts=N/SR/TB`;
+  if (off > 0.001) m += `,atrim=start=${off.toFixed(3)},asetpts=PTS-STARTPTS`;
+  m += `,volume=${o.music.toFixed(2)}`;
   if (o.fade) {
     const { fin, fout } = fadeLens(len);
     m += `,afade=t=in:st=0:d=${fin.toFixed(2)},afade=t=out:st=${(len - fout).toFixed(3)}:d=${fout.toFixed(2)}`;
@@ -1100,16 +1132,20 @@ function cutArgs(segs, i, input, musicPath, precise, out) {
 function setMusic(file) {
   if (!file) return;
   if (musicAudio.src) URL.revokeObjectURL(musicAudio.src);
-  S.music = { file, duration: 0 };
+  stopSolo();
+  S.music = { file, duration: 0, start: 0, end: 0, peaks: null };
   $("musicName").textContent = file.name;
   $("musicMeta").textContent = `${fmtSize(file.size)}　·　讀取中…`;
   $("musicBox").hidden = false; $("musicPick").hidden = true;
+  $("waveEmpty").hidden = false; $("waveEmpty").textContent = "正在讀取波形…";
   musicAudio.onloadedmetadata = () => {
     if (S.music?.file !== file) return;
     S.music.duration = musicAudio.duration;
+    S.music.end = musicAudio.duration;
     $("musicMeta").textContent = `${fmtShort(musicAudio.duration)}　·　${fmtSize(file.size)}`;
-    refresh();
+    showTrim(); drawWave(); refresh();
   };
+  loadPeaks(file);
   musicAudio.onerror = () => {
     if (S.music?.file !== file) return;
     $("musicMeta").textContent = "瀏覽器無法讀取這個音樂檔，請換成 mp3、m4a 或 wav";
@@ -1119,6 +1155,7 @@ function setMusic(file) {
   refresh();
 }
 function removeMusic() {
+  stopSolo();
   S.music = null;
   musicAudio.pause();
   if (musicAudio.src) { URL.revokeObjectURL(musicAudio.src); musicAudio.removeAttribute("src"); }
@@ -1133,9 +1170,148 @@ $("musicRemove").onclick = removeMusic;
   $(id).addEventListener("input", () => { $(out).textContent = $(id).value + "%"; }));
 document.querySelectorAll("input[name=mstart], #mfade").forEach((el) => el.addEventListener("change", refresh));
 
+/* 波形：用瀏覽器解碼整首歌，算出每一小段的最大音量畫成長條 */
+async function loadPeaks(file) {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const buf = await ctx.decodeAudioData(await file.arrayBuffer());
+    ctx.close();
+    if (S.music?.file !== file) return;
+    const bins = 600, chans = [...Array(buf.numberOfChannels)].map((_, c) => buf.getChannelData(c));
+    const step = Math.max(1, Math.floor(buf.length / bins)), peaks = new Float32Array(bins);
+    for (let b = 0; b < bins; b++) {
+      let max = 0;
+      for (const ch of chans) for (let k = b * step, end = Math.min(ch.length, k + step); k < end; k += 4) {
+        const v = Math.abs(ch[k]); if (v > max) max = v;
+      }
+      peaks[b] = max;
+    }
+    const top = Math.max(...peaks) || 1;
+    S.music.peaks = peaks.map((p) => p / top);
+    $("waveEmpty").hidden = true;
+    drawWave();
+  } catch (_) {
+    if (S.music?.file === file) $("waveEmpty").textContent = "無法畫出波形，但仍可用時間設定開始和結束";
+  }
+}
+
+const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+function drawWave() {
+  const cv = $("waveCanvas"), mu = S.music;
+  if (!mu || $("musicBox").hidden) return;
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const W = cv.clientWidth * dpr, H = cv.clientHeight * dpr;
+  if (!W) return;
+  cv.width = W; cv.height = H;
+  const g = cv.getContext("2d");
+  g.clearRect(0, 0, W, H);
+  const dur = mu.duration || 1, xs = mu.start / dur * W, xe = mu.end / dur * W;
+  const inside = cssVar("--accent"), outside = cssVar("--faint");
+  if (mu.peaks) {
+    const n = mu.peaks.length, bw = W / n;
+    for (let b = 0; b < n; b++) {
+      const x = b * bw, h = Math.max(dpr, mu.peaks[b] * (H - 8 * dpr));
+      const used = x + bw / 2 >= xs && x + bw / 2 <= xe;
+      g.fillStyle = used ? inside : outside;
+      g.globalAlpha = used ? 1 : 0.45;
+      g.fillRect(x, (H - h) / 2, Math.max(1, bw - dpr * 0.6), h);
+    }
+    g.globalAlpha = 1;
+  }
+  // 範圍外加一層遮罩，兩側畫把手
+  g.fillStyle = cssVar("--panel"); g.globalAlpha = 0.55;
+  g.fillRect(0, 0, xs, H); g.fillRect(xe, 0, W - xe, H);
+  g.globalAlpha = 1;
+  for (const [x, color] of [[xs, cssVar("--in")], [xe, cssVar("--out")]]) {
+    g.fillStyle = color;
+    g.fillRect(x - 1.5 * dpr, 0, 3 * dpr, H);
+    g.fillRect(x - 6 * dpr, H / 2 - 12 * dpr, 12 * dpr, 24 * dpr); // 把手
+  }
+}
+
+function showTrim() {
+  const mu = S.music;
+  if (!mu) return;
+  if (document.activeElement !== $("mStart")) $("mStart").value = fmtShort(mu.start);
+  if (document.activeElement !== $("mEnd")) $("mEnd").value = fmtShort(mu.end);
+  $("mLen").textContent = `使用 ${fmtShort(mu.end - mu.start)}`;
+}
+function setTrim(start, end) {
+  const mu = S.music, dur = mu.duration;
+  start = Math.max(0, Math.min(start, dur - 0.5));
+  end = Math.max(start + 0.5, Math.min(end, dur));
+  mu.start = start; mu.end = end;
+  showTrim(); drawWave(); refresh();
+}
+["mStart", "mEnd"].forEach((id) => $(id).addEventListener("change", () => {
+  if (!S.music?.duration) return;
+  try {
+    const v = parseTime($(id).value);
+    id === "mStart" ? setTrim(v, S.music.end) : setTrim(S.music.start, v);
+  } catch (_) { showTrim(); }
+}));
+
+const waveEl = $("wave");
+let waveDrag = null;
+function waveTime(ev) {
+  const r = waveEl.getBoundingClientRect();
+  return Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width)) * S.music.duration;
+}
+waveEl.addEventListener("pointerdown", (ev) => {
+  if (!S.music?.duration) return;
+  const r = waveEl.getBoundingClientRect(), px = ev.clientX - r.left;
+  const xs = S.music.start / S.music.duration * r.width, xe = S.music.end / S.music.duration * r.width;
+  const near = Math.min(Math.abs(px - xs), Math.abs(px - xe));
+  if (near <= 14) {
+    waveDrag = Math.abs(px - xs) <= Math.abs(px - xe) ? "start" : "end";
+    waveEl.classList.add("dragging");
+    waveEl.setPointerCapture(ev.pointerId);
+  } else playSolo(waveTime(ev));
+});
+waveEl.addEventListener("pointermove", (ev) => {
+  if (!waveDrag) return;
+  const t = waveTime(ev);
+  waveDrag === "start" ? setTrim(t, S.music.end) : setTrim(S.music.start, t);
+});
+waveEl.addEventListener("pointerup", () => { waveDrag = null; waveEl.classList.remove("dragging"); });
+window.addEventListener("resize", drawWave);
+
+/* 試聽：不跟影片同步，單獨播放音樂範圍 */
+let musicSolo = false;
+function playSolo(from) {
+  if (!S.music?.duration) return;
+  stopPlayback();
+  musicSolo = true;
+  musicAudio.volume = 1;
+  musicAudio.currentTime = from >= S.music.start && from < S.music.end - 0.2 ? from : S.music.start;
+  musicAudio.play().catch(() => {});
+  $("musicPreviewIcon").innerHTML = PAUSE;
+}
+function stopSolo() {
+  if (!musicSolo) return;
+  musicSolo = false;
+  musicAudio.pause();
+  $("musicPreviewIcon").innerHTML = PLAY;
+  $("waveHead").hidden = true;
+}
+$("musicPreview").onclick = () => (musicSolo ? stopSolo() : playSolo(S.music?.start ?? 0));
+video.addEventListener("play", stopSolo);
+
+function updateWaveHead() {
+  const head = $("waveHead");
+  if (!S.music?.duration || musicAudio.paused) { head.hidden = true; return; }
+  head.hidden = false;
+  head.style.left = (musicAudio.currentTime / S.music.duration * 100) + "%";
+}
+
 // 預覽時讓音樂跟著影片走：只在段落內播放，位置、音量、淡入淡出都和輸出一樣
 function syncMusic() {
   if (!S.music || !S.music.duration) return;
+  updateWaveHead();
+  if (musicSolo) {
+    if (musicAudio.currentTime >= S.music.end || musicAudio.ended) stopSolo();
+    return;
+  }
   const o = musicOpts();
   const i = video.paused ? -1 : segmentAt(S.pos);
   video.volume = Math.min(1, o.orig);
@@ -1147,7 +1323,7 @@ function syncMusic() {
     gain *= Math.min(1, fin ? t / fin : 1, fout ? (len - t) / fout : 1);
   }
   musicAudio.volume = Math.max(0, Math.min(1, gain));
-  const want = (musicOffset(S.segments, i) + t) % S.music.duration;
+  const want = S.music.start + (musicOffset(S.segments, i) + t) % musicLen();
   if (musicAudio.paused) { musicAudio.currentTime = want; musicAudio.play().catch(() => {}); }
   else if (Math.abs(musicAudio.currentTime - want) > 0.3) musicAudio.currentTime = want;
 }
@@ -1275,9 +1451,9 @@ $("themeBtn").onclick = () => {
   const t = effectiveDark() ? "light" : "dark";
   root.dataset.theme = t;
   try { localStorage.setItem("vcut-theme", t); } catch (_) {}
-  themeIcon();
+  themeIcon(); drawWave();
 };
-matchMedia("(prefers-color-scheme: dark)").addEventListener("change", themeIcon);
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { themeIcon(); drawWave(); });
 themeIcon();
 
 startEngine().then(refresh, () => {});
