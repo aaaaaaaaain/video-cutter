@@ -125,6 +125,21 @@ textarea.input { resize: vertical; min-height: 78px; font-family: var(--font-mon
 .switch b { font-weight: 700; font-size: 13.5px; }
 .switch.disabled { opacity: .5; cursor: not-allowed; }
 
+/* 背景音樂 */
+.music { display: grid; gap: 12px; padding: 12px; border-radius: 11px; background: var(--panel-2); border: 1px solid var(--line); }
+.music-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.music-ic { width: 36px; height: 36px; border-radius: 9px; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; flex: none; }
+.music-row > div { min-width: 0; display: grid; }
+.music-row b { overflow-wrap: anywhere; font-size: 13.5px; }
+.music-row .link { margin-left: auto; }
+.slider { display: grid; grid-template-columns: 64px 1fr 44px; align-items: center; gap: 10px; }
+.slider label { font-size: 12.5px; color: var(--muted); }
+.slider input { width: 100%; accent-color: var(--accent); }
+.slider output { font: 500 12px var(--font-mono); text-align: right; color: var(--muted); }
+.check2 { display: flex; gap: 8px; align-items: center; font-size: 13px; cursor: pointer; }
+.check2 input { accent-color: var(--accent); width: 15px; height: 15px; margin: 0; }
+.add-music { justify-content: flex-start; padding: 10px 12px; border-style: dashed; background: var(--panel-2); color: var(--muted); }
+
 .summary { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .summary .big { font: 700 26px/1 var(--font-mono); color: var(--ink); }
 .summary .big small { font: 500 13px var(--font-body); color: var(--muted); margin-left: 4px; }
@@ -310,7 +325,31 @@ footer kbd { font: 700 10.5px var(--font-mono); padding: 1px 5px; border-radius:
     </section>
 
     <section class="sec">
-      <div class="sec-h"><span class="n">3</span><h2>輸出</h2><span class="aside" id="extTag"></span></div>
+      <div class="sec-h"><span class="n">3</span><h2>背景音樂</h2><span class="aside">選用</span></div>
+      <input type="file" id="musicFile" accept="audio/*,.mp3,.m4a,.aac,.wav,.ogg,.flac" hidden>
+      <button class="btn add-music" id="musicPick" type="button">
+        <svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+        加入自己的音樂
+      </button>
+      <div class="music" id="musicBox" hidden>
+        <div class="music-row">
+          <span class="music-ic"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></span>
+          <div><b id="musicName"></b><span class="hint" id="musicMeta"></span></div>
+          <button class="link" id="musicRemove" type="button">移除</button>
+        </div>
+        <div class="slider"><label for="volOrig">影片原聲</label><input type="range" id="volOrig" min="0" max="100" value="100"><output id="volOrigOut">100%</output></div>
+        <div class="slider"><label for="volMusic">音樂</label><input type="range" id="volMusic" min="0" max="150" value="70"><output id="volMusicOut">70%</output></div>
+        <div class="seg-ctl">
+          <label><input type="radio" name="mstart" value="each" checked>每段從頭播</label>
+          <label><input type="radio" name="mstart" value="continue">接續上一段</label>
+        </div>
+        <label class="check2"><input type="checkbox" id="mfade" checked>每段開頭淡入、結尾淡出</label>
+        <span class="hint">原聲拉到 0 就是只用音樂。音樂比影片短時會自動重複。加了音樂後聲音會重新編碼，畫面仍照原本的模式處理。</span>
+      </div>
+    </section>
+
+    <section class="sec">
+      <div class="sec-h"><span class="n">4</span><h2>輸出</h2><span class="aside" id="extTag"></span></div>
       <div class="summary idle" id="summary">選好影片後會顯示要切成幾段</div>
       <div class="field" id="packWrap" hidden>
         <span class="label">多段時</span>
@@ -434,6 +473,7 @@ function escapeHTML(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&am
 const S = {
   file: null, duration: 0, playable: false, index: null, analyzing: false,
   segments: [], names: {}, pending: null, pos: 0, stopAt: null, running: false, lastOutput: null,
+  hasAudio: true, music: null, // music = { file, duration }
 };
 
 /* ---------- 剪輯引擎（ffmpeg.wasm） ---------- */
@@ -479,7 +519,7 @@ function startEngine() {
     ffmpeg = new FFmpegWASM.FFmpeg();
     ffmpeg.on("log", ({ message }) => logSink && logSink(message));
     await withTimeout(ffmpeg.load({ coreURL: abs("vendor/ffmpeg-core.js"), wasmURL: url }), 60000, "啟動引擎");
-    mountedFile = null;
+    mountedFile = null; mountedMusic = null;
     setEngine("剪輯引擎就緒", "ready");
   })().catch(async (e) => {
     console.error(e);
@@ -534,6 +574,19 @@ async function ensureInput() {
   await ffmpeg.mount("WORKERFS", { files: [S.file] }, "/in");
   mountedFile = S.file;
   return "/in/" + S.file.name;
+}
+
+let mountedMusic = null;
+async function ensureMusic() {
+  await engineReady;
+  const f = S.music.file;
+  if (mountedMusic !== f) {
+    if (mountedMusic) { try { await ffmpeg.unmount("/music"); } catch (_) {} }
+    try { await ffmpeg.createDir("/music"); } catch (_) {}
+    await ffmpeg.mount("WORKERFS", { files: [f] }, "/music");
+    mountedMusic = f;
+  }
+  return "/music/" + f.name;
 }
 
 async function run(args, onLog) {
@@ -595,6 +648,7 @@ async function analyze() {
     if (file !== S.file) return;
     const d = log.join("\n").match(/Duration:\s*(\d+):(\d+):([\d.]+)/);
     if (d) S.duration = +d[1] * 3600 + +d[2] * 60 + +d[3];
+    S.hasAudio = log.some((l) => /Stream #0:\d+.*Audio:/.test(l));
     try {
       S.index = buildIndex(await ffmpeg.readFile("/index.txt", "utf8"));
       await ffmpeg.deleteFile("/index.txt");
@@ -749,7 +803,7 @@ function computeSegments() {
   return { segs: r.segs, note: r.warn ? "有些片段的關鍵影格間隔太長，無法壓在上限以內" : "" };
 }
 
-const extOut = () => (!isPrecise() && /\.webm$/i.test(S.file?.name || "")) ? "webm" : "mp4";
+const extOut = () => (!isPrecise() && !S.music && /\.webm$/i.test(S.file?.name || "")) ? "webm" : "mp4";
 const prefix = () => cleanName($("prefix").value) || "片段";
 const nameOf = (i) => S.names[i] || `${prefix()}_${String(i + 1).padStart(2, "0")}`;
 
@@ -778,7 +832,7 @@ function refresh() {
   else { sum.className = "summary"; sum.innerHTML = `<span class="big">${segs.length}<small>段</small></span><span class="hint">合計約 ${fmtSize(totalBytes)}</span>`; }
 
   const ext = extOut();
-  $("extTag").textContent = S.file ? `輸出 .${ext}` : "";
+  $("extTag").textContent = S.file ? `輸出 .${ext}${S.music ? "　含背景音樂" : ""}` : "";
   $("packWrap").hidden = segs.length < 2;
   const zip = document.querySelector("input[name=pack]:checked").value === "zip";
   const folderIcon = `<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>`;
@@ -793,6 +847,7 @@ function refresh() {
   $("note").textContent = !has ? "" : [
     note,
     S.analyzing ? "正在分析影片，容量暫時用平均值估算" : isPrecise() ? "精準模式會重新編碼，實際容量可能跟預估差很多" : "",
+    S.music ? "加了音樂後聲音會重新編碼，容量會略有不同" : "",
   ].filter(Boolean).join("　");
 
   $("startBtn").disabled = !segs.length || S.running || S.analyzing || !ffmpeg || !!err;
@@ -898,6 +953,7 @@ function tick() {
     if (S.stopAt !== null && S.pos >= S.stopAt) { video.pause(); S.pos = S.stopAt; S.stopAt = null; }
     updateClock();
   }
+  if (typeof syncMusic === "function") syncMusic();
   requestAnimationFrame(tick);
 }
 requestAnimationFrame(tick);
@@ -995,6 +1051,107 @@ document.querySelectorAll(".presets").forEach((box) => box.addEventListener("cli
   if (b) { $(box.dataset.target).value = b.textContent; refresh(); }
 }));
 
+/* ---------- 背景音樂 ---------- */
+const musicAudio = new Audio();
+musicAudio.preload = "auto";
+const musicOpts = () => ({
+  orig: +$("volOrig").value / 100,
+  music: +$("volMusic").value / 100,
+  fade: $("mfade").checked,
+  continueOn: document.querySelector("input[name=mstart]:checked").value === "continue",
+});
+// 第 i 段的音樂從哪裡開始：每段從頭播 = 0；接續 = 前面各段長度加總（超過音樂長度就繞回開頭）
+function musicOffset(segs, i) {
+  if (!S.music || !musicOpts().continueOn) return 0;
+  const before = segs.slice(0, i).reduce((a, [s, e]) => a + (e - s), 0);
+  return S.music.duration ? before % S.music.duration : 0;
+}
+const fadeLens = (len) => ({ fin: Math.min(1, len / 4), fout: Math.min(2, len / 3) });
+
+function cutArgs(segs, i, input, musicPath, precise, out) {
+  const [s, e] = segs[i], len = e - s;
+  const args = ["-hide_banner", "-ss", fmtFF(s), "-i", input];
+  const video = precise ? ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "20"] : ["-c:v", "copy"];
+  if (!musicPath) {
+    args.push("-t", fmtFF(len));
+    if (precise) args.push(...video, "-c:a", "aac", "-b:a", "160k");
+    else args.push("-c", "copy", "-avoid_negative_ts", "make_zero");
+    return [...args, "-y", out];
+  }
+  // 音樂無限重複（-stream_loop -1），由輸出的 -t 截到這段的長度
+  const o = musicOpts();
+  args.push("-stream_loop", "-1", "-ss", fmtFF(musicOffset(segs, i)), "-i", musicPath);
+  let m = `[1:a]aresample=48000,aformat=channel_layouts=stereo,volume=${o.music.toFixed(2)}`;
+  if (o.fade) {
+    const { fin, fout } = fadeLens(len);
+    m += `,afade=t=in:st=0:d=${fin.toFixed(2)},afade=t=out:st=${(len - fout).toFixed(3)}:d=${fout.toFixed(2)}`;
+  }
+  // 最後用 atrim 把聲音截成剛好這段的長度（只靠 -t 時，影片先結束的話重複的音樂會多出來）
+  const trim = `atrim=duration=${len.toFixed(3)}`;
+  const graph = S.hasAudio && o.orig > 0
+    ? `[0:a]aresample=48000,aformat=channel_layouts=stereo,volume=${o.orig.toFixed(2)}[o];${m}[m];[o][m]amix=inputs=2:duration=longest:normalize=0,${trim}[a]`
+    : `${m},${trim}[a]`;
+  args.push("-filter_complex", graph, "-map", "0:v:0", "-map", "[a]", ...video,
+            "-c:a", "aac", "-b:a", "192k", "-t", fmtFF(len));
+  if (!precise) args.push("-avoid_negative_ts", "make_zero");
+  return [...args, "-y", out];
+}
+
+function setMusic(file) {
+  if (!file) return;
+  if (musicAudio.src) URL.revokeObjectURL(musicAudio.src);
+  S.music = { file, duration: 0 };
+  $("musicName").textContent = file.name;
+  $("musicMeta").textContent = `${fmtSize(file.size)}　·　讀取中…`;
+  $("musicBox").hidden = false; $("musicPick").hidden = true;
+  musicAudio.onloadedmetadata = () => {
+    if (S.music?.file !== file) return;
+    S.music.duration = musicAudio.duration;
+    $("musicMeta").textContent = `${fmtShort(musicAudio.duration)}　·　${fmtSize(file.size)}`;
+    refresh();
+  };
+  musicAudio.onerror = () => {
+    if (S.music?.file !== file) return;
+    $("musicMeta").textContent = "瀏覽器無法讀取這個音樂檔，請換成 mp3、m4a 或 wav";
+    S.music = null; refresh();
+  };
+  musicAudio.src = URL.createObjectURL(file);
+  refresh();
+}
+function removeMusic() {
+  S.music = null;
+  musicAudio.pause();
+  if (musicAudio.src) { URL.revokeObjectURL(musicAudio.src); musicAudio.removeAttribute("src"); }
+  $("musicBox").hidden = true; $("musicPick").hidden = false;
+  video.volume = 1;
+  refresh();
+}
+$("musicPick").onclick = () => $("musicFile").click();
+$("musicFile").addEventListener("change", (ev) => { setMusic(ev.target.files[0]); ev.target.value = ""; });
+$("musicRemove").onclick = removeMusic;
+[["volOrig", "volOrigOut"], ["volMusic", "volMusicOut"]].forEach(([id, out]) =>
+  $(id).addEventListener("input", () => { $(out).textContent = $(id).value + "%"; }));
+document.querySelectorAll("input[name=mstart], #mfade").forEach((el) => el.addEventListener("change", refresh));
+
+// 預覽時讓音樂跟著影片走：只在段落內播放，位置、音量、淡入淡出都和輸出一樣
+function syncMusic() {
+  if (!S.music || !S.music.duration) return;
+  const o = musicOpts();
+  const i = video.paused ? -1 : segmentAt(S.pos);
+  video.volume = Math.min(1, o.orig);
+  if (i < 0) { if (!musicAudio.paused) musicAudio.pause(); return; }
+  const [s, e] = S.segments[i], len = e - s, t = S.pos - s;
+  let gain = o.music;
+  if (o.fade) {
+    const { fin, fout } = fadeLens(len);
+    gain *= Math.min(1, fin ? t / fin : 1, fout ? (len - t) / fout : 1);
+  }
+  musicAudio.volume = Math.max(0, Math.min(1, gain));
+  const want = (musicOffset(S.segments, i) + t) % S.music.duration;
+  if (musicAudio.paused) { musicAudio.currentTime = want; musicAudio.play().catch(() => {}); }
+  else if (Math.abs(musicAudio.currentTime - want) > 0.3) musicAudio.currentTime = want;
+}
+
 /* ---------- 剪輯 ---------- */
 let cancelled = false;
 async function startCut() {
@@ -1017,14 +1174,12 @@ async function startCut() {
   const outputs = [];
   try {
     const input = await ensureInput();
+    const musicPath = S.music ? await ensureMusic() : null;
     for (let i = 0; i < segs.length; i++) {
       const [s, e] = segs[i], len = e - s;
       setStatus(`第 ${i + 1} / ${segs.length} 段　${fmtShort(s)} → ${fmtShort(e)}`);
       const out = `/out.${ext}`;
-      const args = ["-hide_banner", "-ss", fmtFF(s), "-i", input, "-t", fmtFF(len)];
-      if (precise) args.push("-c:v", "libx264", "-preset", "ultrafast", "-crf", "20", "-c:a", "aac", "-b:a", "160k");
-      else args.push("-c", "copy", "-avoid_negative_ts", "make_zero");
-      args.push("-y", out);
+      const args = cutArgs(segs, i, input, musicPath, precise, out);
       const { code, log } = await run(args, (m) => {
         const t = m.match(/time=(\d+):(\d+):([\d.]+)/);
         if (t) show(Math.min(100, (done + Math.min(+t[1] * 3600 + +t[2] * 60 + +t[3], len)) / total * 100));
