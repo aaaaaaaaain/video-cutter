@@ -659,7 +659,8 @@ function bytesBetween(a, b, fromKey) {
   return ix.cum[lowerBound(ix.times, b)] - ix.cum[lowerBound(ix.times, a)];
 }
 function estimate(a, b) {
-  if (S.index) return bytesBetween(a, b, !isPrecise()) * 1.01; // +1%：mp4 檔本身的索引
+  if (!(b > a)) return 0; // 入點和目前位置相同時，避免算出 -0.0 MB
+  if (S.index) return Math.max(0, bytesBetween(a, b, !isPrecise())) * 1.01; // +1%：mp4 檔本身的索引
   return S.file ? S.file.size / S.duration * (b - a) : 0;
 }
 
